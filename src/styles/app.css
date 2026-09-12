@@ -1,0 +1,282 @@
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap");
+
+:root {
+  --paper: #EDEFF2;
+  --ink: #1B2430;
+  --ink-2: #5D6B7D;
+  --line: #E1E5EB;
+  --surface: #FFFFFF;
+  --accent: #2F6FED;
+  --danger: #D6455D;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Instrument Sans", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.auth-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: none;
+  background: linear-gradient(135deg, #2f6fed 0%, #b5387a 100%);
+}
+
+/* ---- login ---- */
+.auth-page {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 12px 40px rgba(27, 36, 48, 0.08);
+  text-align: center;
+}
+.auth-card h1 {
+  margin: 14px 0 2px;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+.auth-lead {
+  margin: 0 0 4px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.auth-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-card input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 14px;
+}
+.auth-card input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.auth-card button[type="submit"] {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+.auth-card button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.auth-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+.auth-link-btn {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0;
+}
+
+/* ---- dashboard ---- */
+.dash-page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.dash-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.dash-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+.dash-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.dash-me {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.wb-btn {
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.wb-btn:hover {
+  border-color: #c6cdd7;
+}
+
+.dash-main {
+  flex: 1;
+  max-width: 980px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+.dash-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.dash-heading h1 {
+  font-size: 22px;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+.dash-new {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.dash-empty {
+  color: var(--ink-2);
+  font-size: 14px;
+  padding: 40px 0;
+  text-align: center;
+}
+.dash-empty-sub {
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.dash-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dash-card-open {
+  display: block;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.dash-card-thumb {
+  display: block;
+  height: 88px;
+  background: repeating-linear-gradient(
+    45deg,
+    #f1f4f8,
+    #f1f4f8 10px,
+    #eaeef4 10px,
+    #eaeef4 20px
+  );
+}
+.dash-card-name {
+  display: block;
+  padding: 12px 14px 6px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.dash-rename {
+  display: block;
+  margin: 8px 14px 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  width: calc(100% - 28px);
+}
+.dash-card-actions {
+  display: flex;
+  gap: 4px;
+  padding: 0 10px 10px;
+}
+.dash-card-actions button {
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--ink-2);
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.dash-card-actions button:hover {
+  background: #f1f4f8;
+  color: var(--ink);
+}
+.dash-card-actions .dash-danger:hover {
+  background: #fdecef;
+  color: var(--danger);
+}
+
+.board-loading,
+.board-error {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
+}
