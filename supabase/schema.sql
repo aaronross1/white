@@ -171,8 +171,17 @@ create policy "votes are readable by any signed-in user" on public.votes
   for select to authenticated using (true);
 create policy "users can cast their own votes" on public.votes
   for insert to authenticated with check (user_id = (select auth.uid()));
-create policy "users can take back their own votes" on public.votes
-  for delete to authenticated using (user_id = (select auth.uid()));
+-- A user can take back their own vote, and a board's owner can clear any
+-- vote on it (used by the "Clear votes" control) — a single OR'd policy so
+-- Postgres only evaluates one permissive DELETE policy per row instead of two.
+create policy "users can delete their own votes or their board's votes" on public.votes
+  for delete to authenticated using (
+    user_id = (select auth.uid())
+    or exists (
+      select 1 from public.boards b
+      where b.id = votes.board_id and b.owner_id = (select auth.uid())
+    )
+  );
 
 -- ---------------------------------------------------------------------------
 -- Realtime: broadcast row changes on these tables to subscribed clients.

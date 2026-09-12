@@ -387,6 +387,27 @@ export function useBoard(boardId, user) {
     [votes, user.id]
   );
 
+  // Wipes every vote on the board — a facilitator reset for a fresh round.
+  // Deletes the rows outright rather than just clearing local state, so it
+  // reaches every connected client via the same realtime subscription that
+  // already syncs individual votes (each deleted row arrives as its own
+  // DELETE event, same as removeVote's).
+  const clearVotes = useCallback(async () => {
+    if (!votes.length) return;
+    const previous = votes;
+    setVotes([]);
+    // Only guards against this client's own vote(s) still being inserted —
+    // another user's concurrent, still-in-flight vote on their own device
+    // isn't visible to us and could in principle survive the clear. That's
+    // a narrow enough window not to be worth server-side locking for.
+    await Promise.all(Object.values(pendingVoteInserts.current));
+    const { error } = await supabase.from("votes").delete().eq("board_id", boardId);
+    if (error) {
+      setVotes(previous);
+      setOpError({ message: "Couldn't clear votes — try again.", key: crypto.randomUUID() });
+    }
+  }, [votes, boardId]);
+
   /* ---------------- board settings ---------------- */
 
   const setShowVotes = useCallback(
@@ -423,6 +444,7 @@ export function useBoard(boardId, user) {
     ungroup,
     castVote,
     removeVote,
+    clearVotes,
     opError,
     setShowVotes,
     renameBoard,

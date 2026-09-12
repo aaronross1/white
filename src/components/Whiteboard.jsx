@@ -451,6 +451,12 @@ export default function Whiteboard({ boardId }) {
     setSel([]);
   };
 
+  const clearVotesClick = () => {
+    if (!votes.length) return;
+    if (!confirm("Clear every vote on this board? This can't be undone.")) return;
+    board.clearVotes();
+  };
+
   const shareUrl = `${window.location.origin}/join/${boardId}`;
 
   const copyShareLink = async () => {
@@ -658,6 +664,17 @@ export default function Whiteboard({ boardId }) {
           >
             {showVotes ? "Hide votes" : "Show votes"}
           </button>
+
+          {isOwner && (
+            <button
+              className="wb-btn"
+              onClick={clearVotesClick}
+              disabled={!votes.length}
+              title="Remove every vote on this board for everyone"
+            >
+              Clear votes
+            </button>
+          )}
 
           <div className="wb-share-wrap" ref={shareRef}>
             <button
