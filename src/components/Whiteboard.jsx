@@ -76,9 +76,9 @@ export default function Whiteboard({ boardId }) {
   }, [editing]);
 
   useEffect(() => {
-    if (board.voteError) flash(board.voteError.message);
+    if (board.opError) flash(board.opError.message);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board.voteError?.key]);
+  }, [board.opError?.key]);
 
   useEffect(() => {
     if (!shareOpen) return undefined;
@@ -331,7 +331,25 @@ export default function Whiteboard({ boardId }) {
     };
 
     el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWheel);
+
+    // Safari's trackpad pinch also fires its own proprietary gesture
+    // events (gesturestart/change/end) in parallel with the ctrl+wheel
+    // event above, and its default action for them is to zoom the whole
+    // page — independent of whatever the wheel handler's preventDefault()
+    // already stopped. Our own zoom is entirely driven by the wheel
+    // handler; these just need suppressing so Safari's native one doesn't
+    // also fire alongside it.
+    const preventGesture = (e) => e.preventDefault();
+    el.addEventListener("gesturestart", preventGesture);
+    el.addEventListener("gesturechange", preventGesture);
+    el.addEventListener("gestureend", preventGesture);
+
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+      el.removeEventListener("gesturestart", preventGesture);
+      el.removeEventListener("gesturechange", preventGesture);
+      el.removeEventListener("gestureend", preventGesture);
+    };
   }, []);
 
   /* Drag tracking lives on window rather than using setPointerCapture: capture

@@ -34,17 +34,30 @@ export function useBoard(boardId, user) {
   const [votes, setVotes] = useState([]);
   const [membersById, setMembersById] = useState({});
   const [status, setStatus] = useState("loading"); // loading | ready | not-found
-  const [voteError, setVoteError] = useState(null); // { message, key } | null
+  const [opError, setOpError] = useState(null); // { message, key } | null
 
   const colorTick = useRef(0);
   const pendingWrites = useRef({}); // objectId -> latest row to persist
   const writeTimers = useRef({}); // objectId -> timeout handle
   const pendingVoteInserts = useRef({}); // voteId -> in-flight insert promise
+  const pendingObjectInserts = useRef({}); // objectId -> in-flight insert promise
   const editingIdRef = useRef(null); // object currently open for local text editing, if any
 
   const setEditingId = useCallback((id) => {
     editingIdRef.current = id;
   }, []);
+
+  // Any later write to a freshly-created object (patch or delete) has to
+  // wait for that object's own insert to confirm first — two independent
+  // HTTP requests have no ordering guarantee, so firing a delete/update
+  // right after create can have it reach the server first, matching
+  // nothing, with the insert then landing moments later as a row nobody
+  // ever actually touched again (a delete that "doesn't stick", or an
+  // edit that silently doesn't apply).
+  const waitForCreate = useCallback(
+    (id) => pendingObjectInserts.current[id] || Promise.resolve(),
+    []
+  );
 
   /* ---------------- initial load + join ---------------- */
   useEffect(() => {
@@ -155,15 +168,19 @@ export function useBoard(boardId, user) {
     // eslint-disable-next-line no-use-before-define
   }, []);
 
-  const flushObject = useCallback(async (id) => {
-    const row = pendingWrites.current[id];
-    if (!row) return;
-    delete pendingWrites.current[id];
-    clearTimeout(writeTimers.current[id]);
-    delete writeTimers.current[id];
-    const { id: _id, board_id, created_by, created_at, ...patch } = row; // eslint-disable-line no-unused-vars
-    await supabase.from("board_objects").update(patch).eq("id", id);
-  }, []);
+  const flushObject = useCallback(
+    async (id) => {
+      const row = pendingWrites.current[id];
+      if (!row) return;
+      delete pendingWrites.current[id];
+      clearTimeout(writeTimers.current[id]);
+      delete writeTimers.current[id];
+      await waitForCreate(id);
+      const { id: _id, board_id, created_by, created_at, ...patch } = row; // eslint-disable-line no-unused-vars
+      await supabase.from("board_objects").update(patch).eq("id", id);
+    },
+    [waitForCreate]
+  );
 
   const flushAll = useCallback(() => {
     Object.keys(pendingWrites.current).forEach((id) => flushObject(id));
@@ -191,7 +208,7 @@ export function useBoard(boardId, user) {
         updated_at: now,
       };
       setObjects((os) => [...os, obj]);
-      supabase
+      const insertPromise = supabase
         .from("board_objects")
         .insert({
           id: obj.id,
@@ -213,6 +230,10 @@ export function useBoard(boardId, user) {
             setObjects((os) => os.filter((o) => o.id !== obj.id));
           }
         });
+      pendingObjectInserts.current[obj.id] = insertPromise;
+      insertPromise.finally(() => {
+        delete pendingObjectInserts.current[obj.id];
+      });
       return obj;
     },
     [boardId]
@@ -234,25 +255,53 @@ export function useBoard(boardId, user) {
   );
 
   // Local update that writes through immediately (text edits, color, group).
-  const patchObjectNow = useCallback((id, patch) => {
-    setObjects((os) => os.map((o) => (o.id === id ? { ...o, ...patch } : o)));
-    supabase.from("board_objects").update(patch).eq("id", id);
-  }, []);
+  const patchObjectNow = useCallback(
+    async (id, patch) => {
+      setObjects((os) => os.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+      await waitForCreate(id);
+      supabase.from("board_objects").update(patch).eq("id", id);
+    },
+    [waitForCreate]
+  );
 
-  const patchObjectsNow = useCallback((ids, patch) => {
-    setObjects((os) => os.map((o) => (ids.includes(o.id) ? { ...o, ...patch } : o)));
-    supabase.from("board_objects").update(patch).in("id", ids);
-  }, []);
+  const patchObjectsNow = useCallback(
+    async (ids, patch) => {
+      setObjects((os) => os.map((o) => (ids.includes(o.id) ? { ...o, ...patch } : o)));
+      await Promise.all(ids.map(waitForCreate));
+      supabase.from("board_objects").update(patch).in("id", ids);
+    },
+    [waitForCreate]
+  );
 
-  const deleteObjects = useCallback((ids) => {
-    ids.forEach((id) => {
-      delete pendingWrites.current[id];
-      clearTimeout(writeTimers.current[id]);
-    });
-    setObjects((os) => os.filter((o) => !ids.includes(o.id)));
-    setVotes((vs) => vs.filter((v) => !ids.includes(v.object_id)));
-    supabase.from("board_objects").delete().in("id", ids);
-  }, []);
+  // Pulls the real objects/votes from the server and replaces local state
+  // with them — the same self-healing resync used for votes, for when a
+  // delete is unexpectedly rejected.
+  const resyncObjects = useCallback(async () => {
+    const [objRes, voteRes] = await Promise.all([
+      supabase.from("board_objects").select("*").eq("board_id", boardId),
+      supabase.from("votes").select("*").eq("board_id", boardId),
+    ]);
+    if (objRes.data) setObjects(objRes.data);
+    if (voteRes.data) setVotes(voteRes.data);
+  }, [boardId]);
+
+  const deleteObjects = useCallback(
+    async (ids) => {
+      ids.forEach((id) => {
+        delete pendingWrites.current[id];
+        clearTimeout(writeTimers.current[id]);
+      });
+      setObjects((os) => os.filter((o) => !ids.includes(o.id)));
+      setVotes((vs) => vs.filter((v) => !ids.includes(v.object_id)));
+      await Promise.all(ids.map(waitForCreate));
+      const { error } = await supabase.from("board_objects").delete().in("id", ids);
+      if (error) {
+        setOpError({ message: "Couldn't delete — restoring.", key: crypto.randomUUID() });
+        resyncObjects();
+      }
+    },
+    [waitForCreate, resyncObjects]
+  );
 
   const group = useCallback(
     (ids) => {
@@ -298,7 +347,7 @@ export function useBoard(boardId, user) {
         .then(({ error }) => {
           if (error) {
             setVotes((vs) => vs.filter((v) => v.id !== id));
-            setVoteError({ message: "Couldn't cast that vote — try again.", key: crypto.randomUUID() });
+            setOpError({ message: "Couldn't cast that vote — try again.", key: crypto.randomUUID() });
             // The budget trigger only rejects this if the server thinks we're
             // already at the limit — which means our local count has drifted
             // from the truth (e.g. an earlier remove-vote didn't actually
@@ -332,7 +381,7 @@ export function useBoard(boardId, user) {
       const { error } = await supabase.from("votes").delete().eq("id", last.id);
       if (error) {
         setVotes((vs) => (vs.some((v) => v.id === last.id) ? vs : [...vs, last]));
-        setVoteError({ message: "Couldn't remove that vote — try again.", key: crypto.randomUUID() });
+        setOpError({ message: "Couldn't remove that vote — try again.", key: crypto.randomUUID() });
       }
     },
     [votes, user.id]
@@ -374,7 +423,7 @@ export function useBoard(boardId, user) {
     ungroup,
     castVote,
     removeVote,
-    voteError,
+    opError,
     setShowVotes,
     renameBoard,
     setEditingId,
