@@ -27,6 +27,7 @@ create table if not exists public.boards (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+create index if not exists boards_owner_idx on public.boards (owner_id);
 
 -- board_members: created (upserted) whenever a user opens a board, whether
 -- they created it or joined via a shared link. Powers the "My boards"
@@ -56,6 +57,7 @@ create table if not exists public.board_objects (
   updated_at timestamptz not null default now()
 );
 create index if not exists board_objects_board_idx on public.board_objects (board_id);
+create index if not exists board_objects_created_by_idx on public.board_objects (created_by);
 
 -- votes: one row per dot placed. A user can place more than one dot on the
 -- same item, so there is deliberately no uniqueness constraint on
@@ -70,12 +72,15 @@ create table if not exists public.votes (
 );
 create index if not exists votes_board_idx on public.votes (board_id);
 create index if not exists votes_object_idx on public.votes (object_id);
+create index if not exists votes_user_idx on public.votes (user_id);
 
 -- ---------------------------------------------------------------------------
 -- updated_at maintenance
 -- ---------------------------------------------------------------------------
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql
+set search_path = public
+as $$
 begin
   new.updated_at = now();
   return new;
@@ -95,7 +100,9 @@ create trigger board_objects_set_updated_at before update on public.board_object
 -- client already stops you before sending the request).
 -- ---------------------------------------------------------------------------
 create or replace function public.enforce_vote_budget()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql
+set search_path = public
+as $$
 declare
   budget int;
   used int;
@@ -131,30 +138,30 @@ alter table public.votes enable row level security;
 create policy "profiles are readable by any signed-in user" on public.profiles
   for select to authenticated using (true);
 create policy "users manage their own profile" on public.profiles
-  for insert to authenticated with check (id = auth.uid());
+  for insert to authenticated with check (id = (select auth.uid()));
 create policy "users update their own profile" on public.profiles
-  for update to authenticated using (id = auth.uid());
+  for update to authenticated using (id = (select auth.uid()));
 
 create policy "boards are readable by any signed-in user" on public.boards
   for select to authenticated using (true);
 create policy "signed-in users can create boards" on public.boards
-  for insert to authenticated with check (owner_id = auth.uid());
+  for insert to authenticated with check (owner_id = (select auth.uid()));
 create policy "only the owner can update board settings" on public.boards
-  for update to authenticated using (owner_id = auth.uid());
+  for update to authenticated using (owner_id = (select auth.uid()));
 create policy "only the owner can delete a board" on public.boards
-  for delete to authenticated using (owner_id = auth.uid());
+  for delete to authenticated using (owner_id = (select auth.uid()));
 
 create policy "members are readable by any signed-in user" on public.board_members
   for select to authenticated using (true);
 create policy "users can add themselves as a member" on public.board_members
-  for insert to authenticated with check (user_id = auth.uid());
+  for insert to authenticated with check (user_id = (select auth.uid()));
 create policy "users can update their own membership" on public.board_members
-  for update to authenticated using (user_id = auth.uid());
+  for update to authenticated using (user_id = (select auth.uid()));
 
 create policy "objects are readable by any signed-in user" on public.board_objects
   for select to authenticated using (true);
 create policy "any signed-in user can create objects" on public.board_objects
-  for insert to authenticated with check (created_by = auth.uid());
+  for insert to authenticated with check (created_by = (select auth.uid()));
 create policy "any signed-in user can edit any object" on public.board_objects
   for update to authenticated using (true);
 create policy "any signed-in user can delete any object" on public.board_objects
@@ -163,9 +170,9 @@ create policy "any signed-in user can delete any object" on public.board_objects
 create policy "votes are readable by any signed-in user" on public.votes
   for select to authenticated using (true);
 create policy "users can cast their own votes" on public.votes
-  for insert to authenticated with check (user_id = auth.uid());
+  for insert to authenticated with check (user_id = (select auth.uid()));
 create policy "users can take back their own votes" on public.votes
-  for delete to authenticated using (user_id = auth.uid());
+  for delete to authenticated using (user_id = (select auth.uid()));
 
 -- ---------------------------------------------------------------------------
 -- Realtime: broadcast row changes on these tables to subscribed clients.

@@ -45,31 +45,46 @@ supabase/schema.sql          full DB schema, RLS policies, realtime publication
 
 ## Setup
 
-1. **Create a Supabase project** at supabase.com (free tier is enough for
-   personal/small-team use).
-2. **Run the schema:** open the SQL editor in your project and run the
-   contents of `supabase/schema.sql`. This creates all tables, the
-   `updated_at` triggers, a server-side vote-budget check, RLS policies, and
-   adds the tables to the `supabase_realtime` publication.
-3. **Enable email auth:** in Authentication → Providers, make sure Email is
-   enabled. Magic link is Supabase's default email flow — no extra config
-   needed for local dev (mail goes out via Supabase's built-in sender; for
-   production you'll want to configure a custom SMTP provider under
-   Authentication → SMTP Settings so links don't land in spam / hit rate
-   limits).
-4. **Copy env vars:**
+This repo is wired up to the **"white"** Supabase project
+(`https://eszrbkevcomyjxbqxvsa.supabase.co`). The schema in
+`supabase/schema.sql` has already been applied to it (tables, RLS policies,
+triggers, and the realtime publication) directly via the Supabase
+management API, and the security/performance advisors are clean. What's
+left is local config and a couple of dashboard settings only a project
+owner can set:
+
+1. **Copy env vars:**
    ```
    cp .env.example .env.local
    ```
-   Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from
-   Project Settings → API.
-5. **Install and run:**
+   Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` with the
+   "white" project's URL and publishable key from Project Settings → API
+   (Aaron already has these).
+2. **Add redirect URLs (required, dashboard-only — no API for this):** in
+   the Supabase dashboard, go to Authentication → URL Configuration and add
+   to **Additional Redirect URLs**:
+   - `http://localhost:5173` (Vite's default dev port)
+   - your deployed URL, once you have one (e.g. `https://your-app.vercel.app`)
+
+   The app passes `emailRedirectTo: window.location.origin` when sending
+   the magic link, and Supabase silently refuses to redirect anywhere that
+   isn't on this allow list — without this step, clicking the email link
+   will fail or bounce to the wrong place.
+3. **Email sending:** the Email provider (magic link) is on by default —
+   no setup needed to get started. Supabase's built-in mailer is rate-limited
+   and fine for testing; before sharing this with a team, configure a
+   custom SMTP provider under Authentication → SMTP Settings so links don't
+   land in spam or hit those limits.
+4. **Install and run:**
    ```
    npm install
    npm run dev
    ```
-6. Open the printed localhost URL, sign in with your email, and check that
+5. Open the printed localhost URL, sign in with your email, and check that
    inbox for the magic link.
+
+Starting a new project from scratch instead? Run `supabase/schema.sql` in
+your project's SQL editor and follow the same steps above.
 
 ## How the pieces fit together
 
