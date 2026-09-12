@@ -62,14 +62,15 @@ owner can set:
    (Aaron already has these).
 2. **Add redirect URLs (required, dashboard-only — no API for this):** in
    the Supabase dashboard, go to Authentication → URL Configuration and add
-   to **Additional Redirect URLs**:
-   - `http://localhost:5173` (Vite's default dev port)
-   - your deployed URL, once you have one (e.g. `https://your-app.vercel.app`)
+   to **Additional Redirect URLs**, using a `/**` wildcard suffix so any
+   path under the origin is allowed (plain sign-in redirects to `/`, but
+   emailed board invites redirect straight to `/join/:boardId`):
+   - `http://localhost:5173/**` (Vite's default dev port)
+   - your deployed URL, once you have one (e.g. `https://your-app.netlify.app/**`)
 
-   The app passes `emailRedirectTo: window.location.origin` when sending
-   the magic link, and Supabase silently refuses to redirect anywhere that
-   isn't on this allow list — without this step, clicking the email link
-   will fail or bounce to the wrong place.
+   Supabase silently refuses to redirect anywhere that isn't on this allow
+   list — without this step, clicking an email link will fail or bounce to
+   the wrong place.
 3. **Email sending:** the Email provider (magic link) is on by default —
    no setup needed to get started. Supabase's built-in mailer is rate-limited
    and fine for testing; before sharing this with a team, configure a

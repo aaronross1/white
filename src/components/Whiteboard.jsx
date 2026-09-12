@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/whiteboard.css";
+import { supabase } from "../supabaseClient";
 import { useAuthContext } from "../context/AuthContext";
 import { useBoard } from "../hooks/useBoard";
 import { usePresence } from "../hooks/usePresence";
@@ -45,8 +46,13 @@ export default function Whiteboard({ boardId }) {
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "light");
   const [renamingBoard, setRenamingBoard] = useState(false);
   const [boardNameDraft, setBoardNameDraft] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteStatus, setInviteStatus] = useState("idle"); // idle | sending | sent | error
+  const [inviteMessage, setInviteMessage] = useState("");
 
   const surfaceRef = useRef(null);
+  const shareRef = useRef(null);
   const drag = useRef(null);
   const lastClick = useRef(null);
 
@@ -57,6 +63,15 @@ export default function Whiteboard({ boardId }) {
   const boardRef = useRef(board);
   boardRef.current = board;
   useEffect(() => () => boardRef.current.flushAll(), []);
+
+  useEffect(() => {
+    if (!shareOpen) return undefined;
+    const onDocPointerDown = (e) => {
+      if (shareRef.current && !shareRef.current.contains(e.target)) setShareOpen(false);
+    };
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [shareOpen]);
 
   const { objects, votes, myVotes, membersById } = board;
   const voteBudget = board.board?.vote_budget ?? 5;
@@ -203,28 +218,44 @@ export default function Whiteboard({ boardId }) {
     setMarquee(null);
   };
 
-  // Trackpad two-finger scroll: vertical zooms, horizontal pans — so the
-  // board can be traversed left/right without switching to the hand tool.
-  // (A trackpad pinch gesture arrives as a wheel event too, deltaY-only, so
-  // it falls through the same zoom path.) A plain mouse wheel just zooms,
-  // same as before.
-  const onWheel = (e) => {
-    e.preventDefault();
-    const r = surfaceRef.current.getBoundingClientRect();
-    const cx = e.clientX - r.left;
-    const cy = e.clientY - r.top;
-    setView((v) => {
-      let { x, y, k } = v;
-      if (e.deltaX !== 0) x -= e.deltaX;
-      if (e.deltaY !== 0) {
-        const nk = Math.min(2.5, Math.max(0.25, k * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-        x = cx - ((cx - x) * nk) / k;
-        y = cy - ((cy - y) * nk) / k;
-        k = nk;
-      }
-      return { x, y, k };
-    });
-  };
+  // Trackpad/mouse wheel navigation, matching Figma/Miro's convention: a
+  // pinch gesture (or ctrl/cmd+wheel) zooms, centered on the pointer; plain
+  // two-finger scroll pans in whichever direction you swipe — so the board
+  // can be traversed without switching to the hand tool.
+  //
+  // This is attached as a real (non-passive) native listener rather than
+  // React's onWheel prop: React attaches wheel listeners as passive for
+  // scroll performance, which silently ignores preventDefault() — so the
+  // browser's own pinch-to-zoom kept firing underneath ours and visibly
+  // scaled the whole page, toolbar included. A non-passive listener lets
+  // preventDefault() actually suppress that.
+  useEffect(() => {
+    const el = surfaceRef.current;
+    if (!el) return undefined;
+
+    const handleWheel = (e) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      const cx = e.clientX - r.left;
+      const cy = e.clientY - r.top;
+      setView((v) => {
+        let { x, y, k } = v;
+        if (e.ctrlKey) {
+          const nk = Math.min(2.5, Math.max(0.25, k * (e.deltaY < 0 ? 1.06 : 1 / 1.06)));
+          x = cx - ((cx - x) * nk) / k;
+          y = cy - ((cy - y) * nk) / k;
+          k = nk;
+        } else {
+          x -= e.deltaX;
+          y -= e.deltaY;
+        }
+        return { x, y, k };
+      });
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, []);
 
   /* Drag tracking lives on window rather than using setPointerCapture: capture
      retargets focus/click away from the element under the pointer, which broke
@@ -324,13 +355,34 @@ export default function Whiteboard({ boardId }) {
     setSel([]);
   };
 
-  const shareBoard = async () => {
-    const url = `${window.location.origin}/join/${boardId}`;
+  const shareUrl = `${window.location.origin}/join/${boardId}`;
+
+  const copyShareLink = async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(shareUrl);
       flash("Board link copied to clipboard!");
     } catch {
-      flash(url);
+      flash(shareUrl);
+    }
+  };
+
+  const sendInvite = async (e) => {
+    e.preventDefault();
+    const email = inviteEmail.trim();
+    if (!email) return;
+    setInviteStatus("sending");
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: shareUrl },
+      });
+      if (error) throw error;
+      setInviteStatus("sent");
+      setInviteMessage(`Invite sent to ${email}.`);
+      setInviteEmail("");
+    } catch (err) {
+      setInviteStatus("error");
+      setInviteMessage(err.message || "Couldn't send the invite. Try again.");
     }
   };
 
@@ -511,10 +563,54 @@ export default function Whiteboard({ boardId }) {
             {showVotes ? "Hide votes" : "Show votes"}
           </button>
 
-          <button className="wb-btn wb-btn-icon" onClick={shareBoard} title="Copy a shareable link to this board">
-            <IconShare />
-            Share
-          </button>
+          <div className="wb-share-wrap" ref={shareRef}>
+            <button
+              className="wb-btn wb-btn-icon"
+              onClick={() => {
+                if (!shareOpen) {
+                  setInviteStatus("idle");
+                  setInviteMessage("");
+                }
+                setShareOpen((s) => !s);
+              }}
+              title="Invite others to this board"
+            >
+              <IconShare />
+              Share
+            </button>
+            {shareOpen && (
+              <div className="wb-share-panel">
+                <p className="wb-share-label">Share link</p>
+                <div className="wb-share-row">
+                  <input
+                    className="wb-share-link"
+                    readOnly
+                    value={shareUrl}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <button className="wb-btn" onClick={copyShareLink}>
+                    Copy
+                  </button>
+                </div>
+
+                <p className="wb-share-label">Invite by email</p>
+                <form className="wb-share-row" onSubmit={sendInvite}>
+                  <input
+                    type="email"
+                    required
+                    placeholder="teammate@example.com"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <button className="wb-btn" type="submit" disabled={inviteStatus === "sending"}>
+                    {inviteStatus === "sending" ? "Sending…" : "Send"}
+                  </button>
+                </form>
+                {inviteStatus === "sent" && <p className="wb-share-ok">{inviteMessage}</p>}
+                {inviteStatus === "error" && <p className="wb-share-err">{inviteMessage}</p>}
+              </div>
+            )}
+          </div>
 
           <button
             className="wb-tool wb-theme"
@@ -566,7 +662,6 @@ export default function Whiteboard({ boardId }) {
         style={{ cursor }}
         onPointerDown={onSurfacePointerDown}
         onPointerMove={onSurfaceHover}
-        onWheel={onWheel}
       >
         <div
           className="wb-grid"
@@ -676,7 +771,7 @@ export default function Whiteboard({ boardId }) {
         <p className="wb-help">
           {tool === "vote"
             ? "Click an item to spend a vote. Shift-click takes it back."
-            : "Scroll to zoom · space-drag to pan · shift-click for multi-select · ⌘G to group"}
+            : "Scroll or swipe to pan · pinch or ⌘+scroll to zoom · shift-click for multi-select · ⌘G to group"}
         </p>
 
         {isOwner ? (

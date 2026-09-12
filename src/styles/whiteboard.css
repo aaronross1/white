@@ -166,6 +166,68 @@
   height: 14px;
 }
 
+.wb-share-wrap {
+  position: relative;
+}
+.wb-share-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(27, 36, 48, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-share-label {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+}
+.wb-share-label:first-child {
+  margin-top: 0;
+}
+.wb-share-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.wb-share-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.wb-share-row .wb-btn {
+  flex: none;
+}
+.wb-share-link {
+  cursor: text;
+}
+.wb-share-ok {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #128a6e;
+}
+.wb-share-err {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--vote);
+}
+
 /* rail */
 .wb-rail {
   position: absolute;

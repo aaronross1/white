@@ -94,7 +94,16 @@ export function useBoard(boardId, user) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "board_objects", filter: `board_id=eq.${boardId}` },
-        (payload) => setObjects((os) => applyChange(os, payload))
+        (payload) => {
+          const id = payload.new?.id ?? payload.old?.id;
+          // A debounced local write (typing, dragging) is still in flight for
+          // this object — this echo reflects an older keystroke than what's
+          // on screen right now. Applying it would flicker the text back to
+          // that older value for a moment. Drop it; the pending write's own
+          // flush (and that echo) will reconcile once typing/dragging pauses.
+          if (payload.eventType !== "DELETE" && id in pendingWrites.current) return;
+          setObjects((os) => applyChange(os, payload));
+        }
       )
       .on(
         "postgres_changes",
