@@ -627,11 +627,26 @@
     left: 50%;
     transform: translateX(-50%);
     flex-direction: row;
+    max-width: calc(100vw - 24px);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .wb-rail::-webkit-scrollbar {
+    display: none;
+  }
+  .wb-tool,
+  .wb-rail-div {
+    flex-shrink: 0;
   }
   .wb-rail-div {
     width: 1px;
     height: auto;
     margin: 4px 5px;
+  }
+  .wb-share-panel {
+    width: min(280px, calc(100vw - 32px));
+    right: -8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

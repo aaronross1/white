@@ -34,10 +34,17 @@ export function useBoard(boardId, user) {
   const [votes, setVotes] = useState([]);
   const [membersById, setMembersById] = useState({});
   const [status, setStatus] = useState("loading"); // loading | ready | not-found
+  const [voteError, setVoteError] = useState(null); // { message, key } | null
 
   const colorTick = useRef(0);
   const pendingWrites = useRef({}); // objectId -> latest row to persist
   const writeTimers = useRef({}); // objectId -> timeout handle
+  const pendingVoteInserts = useRef({}); // voteId -> in-flight insert promise
+  const editingIdRef = useRef(null); // object currently open for local text editing, if any
+
+  const setEditingId = useCallback((id) => {
+    editingIdRef.current = id;
+  }, []);
 
   /* ---------------- initial load + join ---------------- */
   useEffect(() => {
@@ -96,12 +103,19 @@ export function useBoard(boardId, user) {
         { event: "*", schema: "public", table: "board_objects", filter: `board_id=eq.${boardId}` },
         (payload) => {
           const id = payload.new?.id ?? payload.old?.id;
-          // A debounced local write (typing, dragging) is still in flight for
-          // this object — this echo reflects an older keystroke than what's
-          // on screen right now. Applying it would flicker the text back to
-          // that older value for a moment. Drop it; the pending write's own
-          // flush (and that echo) will reconcile once typing/dragging pauses.
-          if (payload.eventType !== "DELETE" && id in pendingWrites.current) return;
+          // Ignore echoes for an object that's either (a) got a debounced
+          // local write still in flight, or (b) open for local text editing
+          // right now. (b) covers a narrow gap (a) can't: an echo for our
+          // own just-flushed write can arrive in the brief window between
+          // clearing the pending entry and the next keystroke repopulating
+          // it, which — if the echo happened to be delivered out of order
+          // relative to a still-in-flight later write — could reflect an
+          // older keystroke than what's on screen. While a note is open for
+          // editing there is only one writer (us), so it's safe to hold off
+          // on every incoming change to it until editing ends and flushes.
+          if (payload.eventType !== "DELETE" && (id in pendingWrites.current || id === editingIdRef.current)) {
+            return;
+          }
           setObjects((os) => applyChange(os, payload));
         }
       )
@@ -259,6 +273,14 @@ export function useBoard(boardId, user) {
 
   const myVotes = useMemo(() => votes.filter((v) => v.user_id === user.id), [votes, user.id]);
 
+  // Pulls the real vote rows from the server and replaces local state with
+  // them. Used to self-heal if a vote write is ever rejected unexpectedly,
+  // so a one-off desync can't permanently wedge the budget count.
+  const resyncVotes = useCallback(async () => {
+    const { data } = await supabase.from("votes").select("*").eq("board_id", boardId);
+    if (data) setVotes(data);
+  }, [boardId]);
+
   const castVote = useCallback(
     (objectId) => {
       const budget = board?.vote_budget ?? 5;
@@ -270,24 +292,48 @@ export function useBoard(boardId, user) {
       const id = crypto.randomUUID();
       const row = { id, board_id: boardId, object_id: objectId, user_id: user.id };
       setVotes((vs) => [...vs, row]);
-      supabase
+      const insertPromise = supabase
         .from("votes")
         .insert(row)
         .then(({ error }) => {
-          if (error) setVotes((vs) => vs.filter((v) => v.id !== id));
+          if (error) {
+            setVotes((vs) => vs.filter((v) => v.id !== id));
+            setVoteError({ message: "Couldn't cast that vote — try again.", key: crypto.randomUUID() });
+            // The budget trigger only rejects this if the server thinks we're
+            // already at the limit — which means our local count has drifted
+            // from the truth (e.g. an earlier remove-vote didn't actually
+            // land). Pull the real rows so the next attempt isn't blocked too.
+            resyncVotes();
+          }
         });
+      pendingVoteInserts.current[id] = insertPromise;
+      insertPromise.finally(() => {
+        delete pendingVoteInserts.current[id];
+      });
       return true;
     },
-    [board?.vote_budget, myVotes.length, boardId, user.id]
+    [board?.vote_budget, myVotes.length, boardId, user.id, resyncVotes]
   );
 
   const removeVote = useCallback(
-    (objectId) => {
+    async (objectId) => {
       const mine = votes.filter((v) => v.object_id === objectId && v.user_id === user.id);
       const last = mine[mine.length - 1];
       if (!last) return;
       setVotes((vs) => vs.filter((v) => v.id !== last.id));
-      supabase.from("votes").delete().eq("id", last.id);
+      // If this exact vote's insert hasn't been confirmed by the server yet,
+      // wait for it first. Two independent HTTP requests (the insert, then
+      // this delete) have no guaranteed ordering, so firing the delete
+      // immediately can have it reach the server before the insert does —
+      // the delete then matches nothing, and the insert lands moments later
+      // as a permanent "ghost" row that silently eats into the vote budget.
+      const pendingInsert = pendingVoteInserts.current[last.id];
+      if (pendingInsert) await pendingInsert;
+      const { error } = await supabase.from("votes").delete().eq("id", last.id);
+      if (error) {
+        setVotes((vs) => (vs.some((v) => v.id === last.id) ? vs : [...vs, last]));
+        setVoteError({ message: "Couldn't remove that vote — try again.", key: crypto.randomUUID() });
+      }
     },
     [votes, user.id]
   );
@@ -328,7 +374,9 @@ export function useBoard(boardId, user) {
     ungroup,
     castVote,
     removeVote,
+    voteError,
     setShowVotes,
     renameBoard,
+    setEditingId,
   };
 }

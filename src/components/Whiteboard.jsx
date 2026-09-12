@@ -55,6 +55,9 @@ export default function Whiteboard({ boardId }) {
   const shareRef = useRef(null);
   const drag = useRef(null);
   const lastClick = useRef(null);
+  const activePointers = useRef(new Map()); // touch pointerId -> {x,y}, for pinch-to-zoom
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
@@ -63,6 +66,19 @@ export default function Whiteboard({ boardId }) {
   const boardRef = useRef(board);
   boardRef.current = board;
   useEffect(() => () => boardRef.current.flushAll(), []);
+
+  // Tell useBoard which object (if any) is open for local text editing, so
+  // its realtime subscription can hold off on echoes for it — see the
+  // comment at that guard for why this closes a gap the debounce guard
+  // alone can't.
+  useEffect(() => {
+    boardRef.current.setEditingId(editing);
+  }, [editing]);
+
+  useEffect(() => {
+    if (board.voteError) flash(board.voteError.message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.voteError?.key]);
 
   useEffect(() => {
     if (!shareOpen) return undefined;
@@ -137,10 +153,16 @@ export default function Whiteboard({ boardId }) {
   /* ---------------- pointer: surface ---------------- */
 
   const onSurfacePointerDown = (e) => {
+    if (drag.current?.mode === "pinch") return;
     if (e.target.closest("[data-obj]")) return;
     setEditing(null);
 
-    const panning = tool === "hand" || spaceDown || e.button === 1;
+    // Touch has no scroll wheel and no hand-tool-free modifier key, so a
+    // plain single-finger drag on empty canvas pans by default — matching
+    // how Miro/Figma's mobile apps behave — instead of starting a marquee
+    // selection, which is what the select/vote tools do on mouse input.
+    const panning =
+      tool === "hand" || spaceDown || e.button === 1 || (e.pointerType === "touch" && (tool === "select" || tool === "vote"));
     if (panning) {
       drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
       return;
@@ -163,8 +185,29 @@ export default function Whiteboard({ boardId }) {
   };
 
   const onSurfacePointerMove = (e) => {
+    if (activePointers.current.has(e.pointerId)) {
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
     const d = drag.current;
     if (!d) return;
+
+    if (d.mode === "pinch") {
+      const p1 = activePointers.current.get(d.ids[0]);
+      const p2 = activePointers.current.get(d.ids[1]);
+      if (!p1 || !p2) return;
+      const r = surfaceRef.current.getBoundingClientRect();
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const mid = { x: (p1.x + p2.x) / 2 - r.left, y: (p1.y + p2.y) / 2 - r.top };
+      const k = Math.min(2.5, Math.max(0.25, d.startView.k * (dist / d.startDist)));
+      // Keep the world point under the pinch's starting midpoint anchored
+      // under wherever that midpoint has moved to, so the gesture feels
+      // like it's pinning the board rather than zooming around a corner.
+      const worldX = (d.startMid.x - d.startView.x) / d.startView.k;
+      const worldY = (d.startMid.y - d.startView.y) / d.startView.k;
+      setView({ k, x: mid.x - worldX * k, y: mid.y - worldY * k });
+      return;
+    }
 
     if (d.mode === "pan") {
       setView((v) => ({ ...v, x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) }));
@@ -210,13 +253,47 @@ export default function Whiteboard({ boardId }) {
     }
   };
 
-  const endDrag = () => {
+  const endDrag = (e) => {
+    if (e) activePointers.current.delete(e.pointerId);
     if (drag.current && (drag.current.mode === "move" || drag.current.mode === "resize")) {
       board.flushAll();
     }
+    // A pinch ends the moment either finger lifts, rather than trying to
+    // seamlessly hand off to a one-finger pan with the remaining finger.
     drag.current = null;
     setMarquee(null);
   };
+
+  // Detecting a second touch has to happen on capture, not the surface's
+  // own onPointerDown: a touch landing on an object fires that object's
+  // handler first, which calls stopPropagation before ever reaching a
+  // bubbling listener here — but capture-phase listeners on this ancestor
+  // still run before that, regardless of what's underneath either finger.
+  useEffect(() => {
+    const el = surfaceRef.current;
+    if (!el) return undefined;
+
+    const onPointerDownCapture = (e) => {
+      if (e.pointerType !== "touch") return;
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.current.size === 2) {
+        const [p1, p2] = [...activePointers.current.values()];
+        const r = el.getBoundingClientRect();
+        drag.current = {
+          mode: "pinch",
+          ids: [...activePointers.current.keys()],
+          startDist: Math.hypot(p1.x - p2.x, p1.y - p2.y),
+          startMid: { x: (p1.x + p2.x) / 2 - r.left, y: (p1.y + p2.y) / 2 - r.top },
+          startView: viewRef.current,
+        };
+        setMarquee(null);
+        setEditing(null);
+      }
+    };
+
+    el.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
+    return () => el.removeEventListener("pointerdown", onPointerDownCapture, { capture: true });
+  }, []);
 
   // Trackpad/mouse wheel navigation, matching Figma/Miro's convention: a
   // pinch gesture (or ctrl/cmd+wheel) zooms, centered on the pointer; plain
@@ -282,6 +359,7 @@ export default function Whiteboard({ boardId }) {
 
   const onObjectPointerDown = (e, obj) => {
     e.stopPropagation();
+    if (drag.current?.mode === "pinch") return;
     if (editing === obj.id) return;
 
     if (tool === "vote") {
