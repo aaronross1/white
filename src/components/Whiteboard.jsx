@@ -8,6 +8,7 @@ import { STICKY_COLORS } from "../lib/colors";
 import { COLORABLE, EDITABLE } from "../lib/objectDefaults";
 import NoteEditor from "./NoteEditor";
 import Cursors from "./Cursors";
+import Logo from "./Logo";
 import {
   IconArrow,
   IconBack,
@@ -17,6 +18,7 @@ import {
   IconHand,
   IconMoon,
   IconRect,
+  IconShare,
   IconSticky,
   IconSun,
   IconText,
@@ -201,14 +203,26 @@ export default function Whiteboard({ boardId }) {
     setMarquee(null);
   };
 
+  // Trackpad two-finger scroll: vertical zooms, horizontal pans — so the
+  // board can be traversed left/right without switching to the hand tool.
+  // (A trackpad pinch gesture arrives as a wheel event too, deltaY-only, so
+  // it falls through the same zoom path.) A plain mouse wheel just zooms,
+  // same as before.
   const onWheel = (e) => {
     e.preventDefault();
     const r = surfaceRef.current.getBoundingClientRect();
     const cx = e.clientX - r.left;
     const cy = e.clientY - r.top;
     setView((v) => {
-      const k = Math.min(2.5, Math.max(0.25, v.k * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-      return { k, x: cx - ((cx - v.x) * k) / v.k, y: cy - ((cy - v.y) * k) / v.k };
+      let { x, y, k } = v;
+      if (e.deltaX !== 0) x -= e.deltaX;
+      if (e.deltaY !== 0) {
+        const nk = Math.min(2.5, Math.max(0.25, k * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+        x = cx - ((cx - x) * nk) / k;
+        y = cy - ((cy - y) * nk) / k;
+        k = nk;
+      }
+      return { x, y, k };
     });
   };
 
@@ -308,6 +322,16 @@ export default function Whiteboard({ boardId }) {
     if (!confirm("Clear every item and vote from this board? This can't be undone.")) return;
     board.deleteObjects(objects.map((o) => o.id));
     setSel([]);
+  };
+
+  const shareBoard = async () => {
+    const url = `${window.location.origin}/join/${boardId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      flash("Board link copied to clipboard!");
+    } catch {
+      flash(url);
+    }
   };
 
   const commitBoardName = () => {
@@ -422,7 +446,7 @@ export default function Whiteboard({ boardId }) {
           <button className="wb-tool wb-back" onClick={() => navigate("/")} title="Back to my boards">
             <IconBack />
           </button>
-          <span className="wb-mark" />
+          <Logo size={22} className="wb-mark" />
           <div>
             {renamingBoard ? (
               <input
@@ -485,6 +509,11 @@ export default function Whiteboard({ boardId }) {
             title={isOwner ? "" : "Only the board creator can toggle vote visibility"}
           >
             {showVotes ? "Hide votes" : "Show votes"}
+          </button>
+
+          <button className="wb-btn wb-btn-icon" onClick={shareBoard} title="Copy a shareable link to this board">
+            <IconShare />
+            Share
           </button>
 
           <button

@@ -2,14 +2,23 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 import { useAuthContext } from "../context/AuthContext";
+import Logo from "../components/Logo";
 
 export default function Dashboard() {
-  const { user, profile, signOut } = useAuthContext();
+  const { user, profile, signOut, updateName } = useAuthContext();
   const navigate = useNavigate();
   const [boards, setBoards] = useState(null);
   const [creating, setCreating] = useState(false);
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+
+  const commitNameChange = () => {
+    const name = nameDraft.trim();
+    setEditingName(false);
+    if (name && name !== profile.name) updateName(name);
+  };
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -69,11 +78,34 @@ export default function Dashboard() {
     <div className="dash-page">
       <header className="dash-top">
         <div className="dash-title">
-          <span className="auth-mark" />
-          <span>Whiteboard</span>
+          <Logo size={24} className="auth-mark" />
+          <span>White</span>
         </div>
         <div className="dash-top-right">
-          <span className="dash-me">{profile?.name}</span>
+          {editingName ? (
+            <input
+              className="dash-name-input"
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitNameChange}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") setEditingName(false);
+              }}
+            />
+          ) : (
+            <button
+              className="dash-me"
+              onClick={() => {
+                setNameDraft(profile.name);
+                setEditingName(true);
+              }}
+              title="Change your display name"
+            >
+              {profile?.name}
+            </button>
+          )}
           <button className="wb-btn" onClick={signOut}>
             Sign out
           </button>

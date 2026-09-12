@@ -1,4 +1,4 @@
-# Whiteboard
+# White
 
 A lightweight, Miro-style collaborative whiteboard: sticky notes, text, and
 shapes on a shared pannable/zoomable canvas, with live cursors, live object

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuthContext } from "../context/AuthContext";
+import Logo from "../components/Logo";
 
 export default function Login() {
   const { signInWithEmail } = useAuthContext();
@@ -26,8 +27,8 @@ export default function Login() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-mark" />
-        <h1>Whiteboard</h1>
+        <Logo size={28} className="auth-mark" />
+        <h1>White</h1>
         {sent ? (
           <>
             <p className="auth-lead">Check your email</p>

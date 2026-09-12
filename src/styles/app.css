@@ -34,11 +34,8 @@ button {
 }
 
 .auth-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
   flex: none;
-  background: linear-gradient(135deg, #2f6fed 0%, #b5387a 100%);
+  color: var(--accent);
 }
 
 /* ---- login ---- */
@@ -145,6 +142,23 @@ button {
 .dash-me {
   font-size: 13px;
   color: var(--ink-2);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.dash-me:hover {
+  background: #f1f4f8;
+  border-color: var(--line);
+  color: var(--ink);
+}
+.dash-name-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  color: var(--ink);
+  background: var(--surface);
 }
 .wb-btn {
   padding: 6px 12px;
